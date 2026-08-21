@@ -1,0 +1,26 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Swiftテスト
+    runs-on: macos-14
+    timeout-minutes: 15
+
+    steps:
+      - name: ソースコードを取得
+        uses: actions/checkout@v4
+
+      - name: Swiftバージョンを表示
+        run: swift --version
+
+      - name: 警告をエラーとしてテスト
+        run: swift test -Xswiftc -warnings-as-errors
