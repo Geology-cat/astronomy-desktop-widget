@@ -29,9 +29,13 @@ final class AstronomyViewModel: NSObject, ObservableObject {
         )
         applyPreferences(requestLocation: true)
         refresh(force: true)
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh(force: false) }
-        }
+        timer = Timer.scheduledTimer(
+            timeInterval: 60,
+            target: self,
+            selector: #selector(timerFired),
+            userInfo: nil,
+            repeats: true
+        )
     }
 
     deinit {
@@ -44,6 +48,10 @@ final class AstronomyViewModel: NSObject, ObservableObject {
             requestLocationIfPossible()
         }
         refresh(force: true)
+    }
+
+    @objc private func timerFired() {
+        refresh(force: false)
     }
 
     @objc private func preferencesChanged() {
