@@ -1,6 +1,7 @@
 import ServiceManagement
 import SwiftUI
 
+@MainActor
 struct SettingsView: View {
     @State private var useCurrentLocation = true
     @State private var locationName = "東京"
