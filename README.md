@@ -35,7 +35,7 @@ swift test
 ./scripts/build_dmg.sh
 ```
 
-`dist/天文情報ウィジェット-1.0.1.dmg` が生成されます。DMGにはUniversal版アプリ、`README.txt`、`Gatekeeper解除.scpt`、アプリケーションフォルダへのリンクが含まれます。
+`dist/天文情報ウィジェット-1.1.0.dmg` が生成されます。DMGにはUniversal版アプリ、`README.txt`、`Gatekeeper解除.scpt`、アプリケーションフォルダへのリンクが含まれます。
 
 Gatekeeper解除AppleScriptは、Bundle IDが一致する「天文情報ウィジェット.app」の隔離属性だけを解除します。Mac全体のGatekeeper設定は変更しません。
 
