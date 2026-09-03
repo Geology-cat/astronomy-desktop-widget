@@ -35,10 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func createPanel() {
         let view = AstronomyWidgetView(model: model)
         let hostingView = NSHostingView(rootView: view)
-        hostingView.sizingOptions = [.preferredContentSize]
+        hostingView.sizingOptions = [.intrinsicContentSize]
 
         let panel = DesktopPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 478, height: 590),
+            contentRect: NSRect(x: 0, y: 0, width: 452, height: 470),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -76,7 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         preserveTopEdge: Bool
     ) {
         hostingView.layoutSubtreeIfNeeded()
-        let fittingSize = hostingView.fittingSize
+        // NSHostingView は Auto Layout 制約を持たないため fittingSize が 0 になることがあり、
+        // SwiftUI が算出した intrinsicContentSize を優先します。
+        let intrinsic = hostingView.intrinsicContentSize
+        let fittingSize = intrinsic.width > 100 && intrinsic.height > 100 ? intrinsic : hostingView.fittingSize
         guard fittingSize.width.isFinite, fittingSize.height.isFinite,
               fittingSize.width > 100, fittingSize.height > 100 else { return }
         var frame = panel.frame

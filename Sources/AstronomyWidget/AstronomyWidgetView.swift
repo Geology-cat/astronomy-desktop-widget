@@ -5,54 +5,84 @@ struct AstronomyWidgetView: View {
     @ObservedObject var model: AstronomyViewModel
 
     var body: some View {
-        VStack(spacing: 14 * model.textScale) {
+        VStack(alignment: .leading, spacing: 11 * model.textScale) {
             header
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 10 * model.textScale) {
                 sunCard
                 moonCard
             }
             twilightCard
-            footer
+            if let notice = model.locationNotice {
+                noticeRow(notice)
+            }
         }
-        .padding(18 * min(model.textScale, 1.15))
+        .padding(14 * min(model.textScale, 1.15))
         .frame(width: widgetWidth)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(.white.opacity(0.20), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.white.opacity(0.22), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.22), radius: 24, y: 12)
-        .padding(24)
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+        .padding(16)
         .environment(\.colorScheme, .dark)
     }
 
+    // 日付・地点・月齢バッジ・設定ボタンを 1 行にまとめたヘッダー
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .center, spacing: 10 * model.textScale) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(model.now, format: .dateTime.year().month(.wide).day().weekday(.wide))
-                    .font(widgetFont(20, weight: .semibold, design: .rounded))
+                    .font(widgetFont(21, weight: .semibold, design: .rounded))
                     .tracking(-0.3)
-                HStack(spacing: 5) {
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                HStack(spacing: 4) {
                     Image(systemName: "location.fill")
                     Text(model.activeLocation.name)
                     Text(coordinateText)
                         .foregroundStyle(.secondary)
                 }
-                .font(widgetFont(11))
+                .font(widgetFont(13))
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
             }
-            Spacer(minLength: 8)
-            Button {
-                NotificationCenter.default.post(name: .openAstronomySettings, object: nil)
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(widgetFont(13, weight: .semibold))
-                    .frame(width: 30 * model.textScale, height: 30 * model.textScale)
-                    .background(.white.opacity(0.09), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help("設定")
+            Spacer(minLength: 4)
+            moonBadge
+            settingsButton
         }
+    }
+
+    // 月相の図と月齢はカードから外に出して、ヘッダーの一等地に置く
+    private var moonBadge: some View {
+        HStack(spacing: 7 * model.textScale) {
+            MoonPhaseView(phase: model.moonPhase.fraction)
+                .frame(width: 36 * model.textScale, height: 36 * model.textScale)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("月齢")
+                    .font(widgetFont(11))
+                    .foregroundStyle(.secondary)
+                Text(model.moonPhase.age, format: .number.precision(.fractionLength(1)))
+                    .font(widgetFont(19, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, 9 * min(model.textScale, 1.15))
+        .padding(.vertical, 5 * min(model.textScale, 1.15))
+        .background(.white.opacity(0.105), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var settingsButton: some View {
+        Button {
+            NotificationCenter.default.post(name: .openAstronomySettings, object: nil)
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(widgetFont(14, weight: .semibold))
+                .frame(width: 32 * model.textScale, height: 32 * model.textScale)
+                .background(.white.opacity(0.105), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help("設定")
     }
 
     private var sunCard: some View {
@@ -62,61 +92,107 @@ struct AstronomyWidgetView: View {
                 EventRow(label: "南中", value: transit(events), textScale: model.textScale)
                 EventRow(label: "日の入", value: time(events.set), textScale: model.textScale)
             } else {
-                ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                placeholder
             }
         }
     }
 
     private var moonCard: some View {
-        EventCard(title: "月", systemImage: "moon.stars.fill", tint: Color(red: 0.72, green: 0.78, blue: 1.0), textScale: model.textScale) {
-            HStack(spacing: 10) {
-                MoonPhaseView(phase: model.moonPhase.fraction)
-                    .frame(width: 50 * model.textScale, height: 50 * model.textScale)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("月齢")
-                        .font(widgetFont(11))
-                        .foregroundStyle(.secondary)
-                    Text(model.moonPhase.age, format: .number.precision(.fractionLength(1)))
-                        .font(widgetFont(21, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        EventCard(
+            title: "月",
+            systemImage: "moon.stars.fill",
+            tint: Color(red: 0.76, green: 0.81, blue: 1.0),
+            textScale: model.textScale
+        ) {
             if let events = model.today?.moon {
                 EventRow(label: "月の出", value: time(events.rise), textScale: model.textScale)
                 EventRow(label: "南中", value: transit(events), textScale: model.textScale)
                 EventRow(label: "月の入", value: time(events.set), textScale: model.textScale)
+            } else {
+                placeholder
             }
         }
+    }
+
+    private var placeholder: some View {
+        ProgressView()
+            .controlSize(.small)
+            .frame(maxWidth: .infinity)
     }
 
     private var twilightCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 9 * model.textScale) {
             Label("天文薄明", systemImage: "sparkles")
-                .font(widgetFont(14, weight: .semibold))
-                .foregroundStyle(Color(red: 0.67, green: 0.72, blue: 1.0))
-            TwilightRow(title: "今日", date: model.today?.date, events: model.today?.astronomicalTwilight, textScale: model.textScale, time: time)
-            Divider().overlay(.white.opacity(0.10))
-            TwilightRow(title: "明日", date: model.tomorrow?.date, events: model.tomorrow?.astronomicalTwilight, textScale: model.textScale, time: time)
+                .font(widgetFont(15, weight: .semibold))
+                .foregroundStyle(Color(red: 0.70, green: 0.75, blue: 1.0))
+            Grid(
+                alignment: .leading,
+                horizontalSpacing: 10 * model.textScale,
+                verticalSpacing: 8 * model.textScale
+            ) {
+                GridRow {
+                    Color.clear.frame(width: 1, height: 1)
+                    twilightHeader("朝の薄明開始")
+                    twilightHeader("夕の薄明終了")
+                }
+                twilightRow(title: "今日", day: model.today)
+                Divider().overlay(.white.opacity(0.14))
+                twilightRow(title: "明日", day: model.tomorrow)
+            }
         }
-        .padding(14 * min(model.textScale, 1.15))
-        .background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(12 * min(model.textScale, 1.15))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.105), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var footer: some View {
-        HStack(spacing: 6) {
-            if let notice = model.locationNotice {
-                Image(systemName: "location.slash")
-                Text(notice)
-            } else {
-                Image(systemName: "arrow.clockwise")
-                Text("毎分更新")
+    private func twilightRow(title: String, day: DailyAstronomy?) -> some View {
+        GridRow {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(widgetFont(13, weight: .semibold))
+                if let date = day?.date {
+                    Text(date, format: .dateTime.month().day().weekday(.abbreviated))
+                        .font(widgetFont(11))
+                        .foregroundStyle(.secondary)
+                }
             }
-            Spacer()
-            Text("ドラッグして移動")
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            twilightTime(systemImage: "sunrise.fill", value: time(day?.astronomicalTwilight.morning))
+            twilightTime(systemImage: "sunset.fill", value: time(day?.astronomicalTwilight.evening))
         }
-        .font(widgetFont(10))
-        .foregroundStyle(.tertiary)
+    }
+
+    private func twilightHeader(_ text: String) -> some View {
+        Text(text)
+            .font(widgetFont(11))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func twilightTime(systemImage: String, value: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .monospacedDigit()
+        }
+        .font(widgetFont(16, weight: .medium))
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func noticeRow(_ notice: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "location.slash")
+            Text(notice)
+        }
+        .font(widgetFont(12))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
         .padding(.horizontal, 2)
     }
 
@@ -125,7 +201,7 @@ struct AstronomyWidgetView: View {
     }
 
     private var widgetWidth: CGFloat {
-        430 + (model.textScale - 1) * 140
+        420 + (model.textScale - 1) * 180
     }
 
     private func widgetFont(
@@ -163,15 +239,15 @@ private struct EventCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10 * textScale) {
+        VStack(alignment: .leading, spacing: 8 * textScale) {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 15 * textScale, weight: .semibold))
+                .font(.system(size: 17 * textScale, weight: .semibold))
                 .foregroundStyle(tint)
             content
         }
-        .padding(14 * min(textScale, 1.15))
+        .padding(12 * min(textScale, 1.15))
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.white.opacity(0.105), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -188,35 +264,8 @@ private struct EventRow: View {
                 .fontWeight(.medium)
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.78)
+                .minimumScaleFactor(0.7)
         }
-        .font(.system(size: 12 * textScale))
-    }
-}
-
-private struct TwilightRow: View {
-    let title: String
-    let date: Date?
-    let events: TwilightEvents?
-    let textScale: CGFloat
-    let time: (Date?) -> String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).fontWeight(.semibold)
-                if let date {
-                    Text(date, format: .dateTime.month().day().weekday(.abbreviated))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.system(size: 11 * textScale))
-            .frame(width: 72 * textScale, alignment: .leading)
-            Label(time(events?.morning), systemImage: "sunrise.fill")
-            Spacer(minLength: 4)
-            Label(time(events?.evening), systemImage: "sunset.fill")
-        }
-        .font(.system(size: 12 * textScale, weight: .medium))
-        .monospacedDigit()
+        .font(.system(size: 15 * textScale))
     }
 }
