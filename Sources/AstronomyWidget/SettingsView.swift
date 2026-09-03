@@ -1,3 +1,4 @@
+import AstronomyCore
 import ServiceManagement
 import SwiftUI
 
@@ -8,6 +9,7 @@ struct SettingsView: View {
     @State private var latitude = 35.6812
     @State private var longitude = 139.7671
     @State private var widgetTextSize = WidgetTextSize.standard
+    @State private var moonDayMode = MoonDayMode.risenThatDay
     @State private var launchAtLogin = false
     @State private var message: String?
 
@@ -70,6 +72,20 @@ struct SettingsView: View {
                             .font(.system(size: 12 * widgetTextSize.scale, weight: .medium))
                             .monospacedDigit()
                     }
+                    Divider()
+                    LabeledContent("月の南中・月の入") {
+                        Picker("月の南中・月の入", selection: $moonDayMode) {
+                            ForEach(MoonDayMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 190)
+                    }
+                    Text(moonDayMode.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(8)
             }
@@ -102,6 +118,7 @@ struct SettingsView: View {
         latitude = preferences.latitude
         longitude = preferences.longitude
         widgetTextSize = preferences.widgetTextSize
+        moonDayMode = preferences.moonDayMode
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
@@ -121,7 +138,8 @@ struct SettingsView: View {
                 locationName: locationName,
                 latitude: latitude,
                 longitude: longitude,
-                widgetTextSize: widgetTextSize
+                widgetTextSize: widgetTextSize,
+                moonDayMode: moonDayMode
             )
             closeWindow()
         } catch {

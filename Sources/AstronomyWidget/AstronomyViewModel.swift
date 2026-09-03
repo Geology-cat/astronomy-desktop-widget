@@ -104,9 +104,10 @@ final class AstronomyViewModel: NSObject, ObservableObject {
         let startOfDay = Calendar.current.startOfDay(for: now)
         guard force || lastCalculatedDay != startOfDay else { return }
         lastCalculatedDay = startOfDay
-        today = calculator.dailyAstronomy(for: now, location: activeLocation)
+        let moonMode = AppPreferences.shared.moonDayMode
+        today = calculator.dailyAstronomy(for: now, location: activeLocation, moonMode: moonMode)
         if let nextDate = Calendar.current.date(byAdding: .day, value: 1, to: now) {
-            tomorrow = calculator.dailyAstronomy(for: nextDate, location: activeLocation)
+            tomorrow = calculator.dailyAstronomy(for: nextDate, location: activeLocation, moonMode: moonMode)
         }
     }
 }

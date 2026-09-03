@@ -69,6 +69,80 @@ final class AstronomyCoreTests: XCTestCase {
         XCTAssertLessThan(daily.astronomicalTwilight.morning!, daily.astronomicalTwilight.evening!)
     }
 
+    /// 2026年9月3日の東京は、月の出21:19に対して南中3:58・月の入11:28が前日にのぼった月のものになります。
+    func testMoonModesOnDayWhereEventsBelongToPreviousMoon() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        let date = ISO8601DateFormatter().date(from: "2026-09-03T03:00:00Z")!
+
+        let withinDay = calculator.dailyAstronomy(
+            for: date,
+            location: tokyo,
+            calendar: calendar,
+            moonMode: .withinDay
+        ).moon
+        XCTAssertNotNil(withinDay.rise)
+        XCTAssertNotNil(withinDay.transit)
+        XCTAssertNotNil(withinDay.set)
+        // 南中と月の入は月の出より前に起きるため、前日にのぼった月と判定されます。
+        XCTAssertLessThan(withinDay.transit!, withinDay.rise!)
+        XCTAssertLessThan(withinDay.set!, withinDay.rise!)
+        XCTAssertEqual(withinDay.transitNote, .roseOnPreviousDay)
+        XCTAssertEqual(withinDay.setNote, .roseOnPreviousDay)
+
+        let risenThatDay = calculator.dailyAstronomy(
+            for: date,
+            location: tokyo,
+            calendar: calendar,
+            moonMode: .risenThatDay
+        ).moon
+        // 月の出は同じで、南中と月の入はその月を追いかけた翌日の時刻になります。
+        XCTAssertEqual(risenThatDay.rise, withinDay.rise)
+        XCTAssertNotNil(risenThatDay.transit)
+        XCTAssertNotNil(risenThatDay.set)
+        XCTAssertLessThan(risenThatDay.rise!, risenThatDay.transit!)
+        XCTAssertLessThan(risenThatDay.transit!, risenThatDay.set!)
+        XCTAssertEqual(risenThatDay.transitNote, .occursDaysLater(1))
+        XCTAssertEqual(risenThatDay.setNote, .occursDaysLater(1))
+        XCTAssertNotNil(risenThatDay.transitAltitude)
+
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date))!
+        XCTAssertEqual(calendar.startOfDay(for: risenThatDay.transit!), nextDay)
+        XCTAssertEqual(calendar.startOfDay(for: risenThatDay.set!), nextDay)
+    }
+
+    /// 南中・月の入がその日のうちに収まる日は、どちらのモードでも同じ結果になります。
+    func testMoonModesAgreeWhenEventsFollowTheSameDayRise() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        let date = ISO8601DateFormatter().date(from: "2026-08-22T00:00:00Z")!
+
+        let withinDay = calculator.dailyAstronomy(
+            for: date,
+            location: tokyo,
+            calendar: calendar,
+            moonMode: .withinDay
+        ).moon
+        let risenThatDay = calculator.dailyAstronomy(
+            for: date,
+            location: tokyo,
+            calendar: calendar,
+            moonMode: .risenThatDay
+        ).moon
+
+        XCTAssertEqual(risenThatDay.rise, withinDay.rise)
+        XCTAssertEqual(
+            risenThatDay.transit!.timeIntervalSince(withinDay.transit!),
+            0,
+            accuracy: 60
+        )
+        XCTAssertEqual(risenThatDay.set!.timeIntervalSince(withinDay.set!), 0, accuracy: 60)
+        XCTAssertEqual(withinDay.transitNote, .none)
+        XCTAssertEqual(withinDay.setNote, .none)
+        XCTAssertEqual(risenThatDay.transitNote, .none)
+        XCTAssertEqual(risenThatDay.setNote, .none)
+    }
+
     private func assertTime(
         _ actual: Date?,
         isNear expectedText: String,

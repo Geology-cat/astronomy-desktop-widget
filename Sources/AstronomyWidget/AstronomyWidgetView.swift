@@ -106,8 +106,18 @@ struct AstronomyWidgetView: View {
         ) {
             if let events = model.today?.moon {
                 EventRow(label: "月の出", value: time(events.rise), textScale: model.textScale)
-                EventRow(label: "南中", value: transit(events), textScale: model.textScale)
-                EventRow(label: "月の入", value: time(events.set), textScale: model.textScale)
+                EventRow(
+                    label: "南中",
+                    value: moonTransit(events),
+                    note: previousDayBadge(events.transitNote),
+                    textScale: model.textScale
+                )
+                EventRow(
+                    label: "月の入",
+                    value: moonTime(events.set, events.setNote),
+                    note: previousDayBadge(events.setNote),
+                    textScale: model.textScale
+                )
             } else {
                 placeholder
             }
@@ -217,6 +227,29 @@ struct AstronomyWidgetView: View {
         return date.formatted(date: .omitted, time: .shortened)
     }
 
+    /// 翌日以降にまたぐ場合に、時刻へ直接付ける接頭辞です。
+    private func dayPrefix(_ note: MoonEventNote) -> String {
+        guard case .occursDaysLater(let days) = note else { return "" }
+        return days == 1 ? "翌" : "\(days)日後"
+    }
+
+    /// 前日にのぼった月であることを、時刻の横へ小さく添えます。
+    private func previousDayBadge(_ note: MoonEventNote) -> String? {
+        guard case .roseOnPreviousDay = note else { return nil }
+        return "（前日）"
+    }
+
+    private func moonTime(_ date: Date?, _ note: MoonEventNote) -> String {
+        guard date != nil else { return "—" }
+        return dayPrefix(note) + time(date)
+    }
+
+    private func moonTransit(_ events: DailyBodyEvents) -> String {
+        guard let date = events.transit, let altitude = events.transitAltitude else { return "—" }
+        let value = "\(time(date))（\(altitude.formatted(.number.precision(.fractionLength(1))))°）"
+        return dayPrefix(events.transitNote) + value
+    }
+
     private func transit(_ events: DailyBodyEvents) -> String {
         guard let date = events.transit, let altitude = events.transitAltitude else { return "—" }
         return "\(time(date))（\(altitude.formatted(.number.precision(.fractionLength(1))))°）"
@@ -254,12 +287,21 @@ private struct EventCard<Content: View>: View {
 private struct EventRow: View {
     let label: String
     let value: String
+    var note: String?
     let textScale: CGFloat
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Text(label).foregroundStyle(.secondary)
             Spacer(minLength: 4)
+            if let note {
+                // 数字の列は右揃えのまま保ちたいので、注記は時刻の左へ小さく置きます。
+                Text(note)
+                    .font(.system(size: 11 * textScale))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
             Text(value)
                 .fontWeight(.medium)
                 .monospacedDigit()

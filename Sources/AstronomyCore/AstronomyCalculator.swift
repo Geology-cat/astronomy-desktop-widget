@@ -10,19 +10,29 @@ public struct AstronomyCalculator: Sendable {
 
     public init() {}
 
+    /// その日にのぼった月を追う際に、南中・月の入を探す時間の上限です。
+    private static let moonTrackingWindow: TimeInterval = 36 * 3_600
+
     public func dailyAstronomy(
         for date: Date,
         location: ObserverLocation,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        moonMode: MoonDayMode = .withinDay
     ) -> DailyAstronomy {
         let localCalendar = calendar
         let start = localCalendar.startOfDay(for: date)
         let end = localCalendar.date(byAdding: .day, value: 1, to: start)!
 
         let sunEvents = bodyEvents(.sun, start: start, end: end, location: location)
-        let moonEvents = bodyEvents(.moon, start: start, end: end, location: location)
+        let moon = moonEvents(
+            start: start,
+            end: end,
+            location: location,
+            mode: moonMode,
+            calendar: localCalendar
+        )
         let twilight = twilightEvents(start: start, end: end, location: location)
-        return DailyAstronomy(date: start, sun: sunEvents, moon: moonEvents, astronomicalTwilight: twilight)
+        return DailyAstronomy(date: start, sun: sunEvents, moon: moon, astronomicalTwilight: twilight)
     }
 
     public func moonPhase(at date: Date) -> MoonPhase {
@@ -168,19 +178,7 @@ public struct AstronomyCalculator: Sendable {
         end: Date,
         location: ObserverLocation
     ) -> DailyBodyEvents {
-        let threshold: (Date) -> Double = { date in
-            switch body {
-            case .sun:
-                return -0.833
-            case .moon:
-                let distance = moonCoordinate(at: date).distance
-                let parallax = radiansToDegrees(asin(min(1, 1 / max(1, distance))))
-                return -0.5667 - 0.2725 * parallax
-            }
-        }
-        let crossings = findCrossings(start: start, end: end, step: 300) { date in
-            altitude(of: body, at: date, location: location) - threshold(date)
-        }
+        let crossings = horizonCrossings(body, start: start, end: end, location: location)
         let rise = crossings.first(where: { $0.direction == .rising })?.date
         let set = crossings.first(where: { $0.direction == .setting })?.date
         let transit = maximumTime(start: start, end: end) { date in
@@ -188,6 +186,93 @@ public struct AstronomyCalculator: Sendable {
         }
         let transitAltitude = transit.map { altitude(of: body, at: $0, location: location, includeRefraction: true) }
         return DailyBodyEvents(rise: rise, transit: transit, set: set, transitAltitude: transitAltitude)
+    }
+
+    /// 出入りの判定に使う見かけの地平線高度です。月は距離によって視差が変わります。
+    private func horizonThreshold(_ body: CelestialBody, at date: Date) -> Double {
+        switch body {
+        case .sun:
+            return -0.833
+        case .moon:
+            let distance = moonCoordinate(at: date).distance
+            let parallax = radiansToDegrees(asin(min(1, 1 / max(1, distance))))
+            return -0.5667 - 0.2725 * parallax
+        }
+    }
+
+    private func horizonCrossings(
+        _ body: CelestialBody,
+        start: Date,
+        end: Date,
+        location: ObserverLocation
+    ) -> [Crossing] {
+        findCrossings(start: start, end: end, step: 300) { date in
+            altitude(of: body, at: date, location: location) - horizonThreshold(body, at: date)
+        }
+    }
+
+    /// 月の南中・月の入を、指定したモードに従って求めます。
+    private func moonEvents(
+        start: Date,
+        end: Date,
+        location: ObserverLocation,
+        mode: MoonDayMode,
+        calendar: Calendar
+    ) -> DailyBodyEvents {
+        switch mode {
+        case .withinDay:
+            let events = bodyEvents(.moon, start: start, end: end, location: location)
+            // その日の月の出より前に起きる南中・月の入は、前日にのぼった月のものです。
+            // その日に月の出がない場合も、のぼったのは前日以前になります。
+            func note(_ date: Date?) -> MoonEventNote {
+                guard let date else { return .none }
+                guard let rise = events.rise, date >= rise else { return .roseOnPreviousDay }
+                return .none
+            }
+            return DailyBodyEvents(
+                rise: events.rise,
+                transit: events.transit,
+                set: events.set,
+                transitAltitude: events.transitAltitude,
+                transitNote: note(events.transit),
+                setNote: note(events.set)
+            )
+
+        case .risenThatDay:
+            let rise = horizonCrossings(.moon, start: start, end: end, location: location)
+                .first(where: { $0.direction == .rising })?.date
+            // その日に月の出がなければ、追いかける対象の月が存在しません。
+            guard let rise else {
+                return DailyBodyEvents(rise: nil, transit: nil, set: nil, transitAltitude: nil)
+            }
+            let searchEnd = rise.addingTimeInterval(Self.moonTrackingWindow)
+            let set = horizonCrossings(.moon, start: rise, end: searchEnd, location: location)
+                .first(where: { $0.direction == .setting })?.date
+            let transit = firstMaximumTime(start: rise, end: set ?? searchEnd) { date in
+                altitude(of: .moon, at: date, location: location)
+            }
+            let transitAltitude = transit.map {
+                altitude(of: .moon, at: $0, location: location, includeRefraction: true)
+            }
+            // 月の出は必ず当日なので、当日から何日ずれたかだけを見ます。
+            func note(_ date: Date?) -> MoonEventNote {
+                guard let date else { return .none }
+                let days = calendar.dateComponents(
+                    [.day],
+                    from: start,
+                    to: calendar.startOfDay(for: date)
+                ).day ?? 0
+                return days > 0 ? .occursDaysLater(days) : .none
+            }
+            return DailyBodyEvents(
+                rise: rise,
+                transit: transit,
+                set: set,
+                transitAltitude: transitAltitude,
+                transitNote: note(transit),
+                setNote: note(set)
+            )
+        }
     }
 
     private func twilightEvents(start: Date, end: Date, location: ObserverLocation) -> TwilightEvents {
@@ -253,8 +338,36 @@ public struct AstronomyCalculator: Sendable {
               index > samples.startIndex,
               index < samples.index(before: samples.endIndex) else { return nil }
 
-        var low = samples[index - 1].0
-        var high = samples[index + 1].0
+        return refineMaximum(low: samples[index - 1].0, high: samples[index + 1].0, value: value)
+    }
+
+    /// start より後に最初に現れる極大を返します。窓の中に複数の南中があっても先頭を選びます。
+    private func firstMaximumTime(start: Date, end: Date, value: (Date) -> Double) -> Date? {
+        let sampleStep: TimeInterval = 900
+        var previousDate = start
+        var previousValue = value(previousDate)
+        var currentDate = start.addingTimeInterval(sampleStep)
+        guard currentDate < end else { return nil }
+        var currentValue = value(currentDate)
+
+        while true {
+            let nextDate = currentDate.addingTimeInterval(sampleStep)
+            guard nextDate <= end else { return nil }
+            let nextValue = value(nextDate)
+            // 左は真に増加していることを求め、start 直後の平坦部で誤検出しないようにします。
+            if currentValue > previousValue, currentValue >= nextValue {
+                return refineMaximum(low: previousDate, high: nextDate, value: value)
+            }
+            previousDate = currentDate
+            previousValue = currentValue
+            currentDate = nextDate
+            currentValue = nextValue
+        }
+    }
+
+    private func refineMaximum(low: Date, high: Date, value: (Date) -> Double) -> Date {
+        var low = low
+        var high = high
         for _ in 0..<32 {
             let span = high.timeIntervalSince(low)
             let first = low.addingTimeInterval(span / 3)
