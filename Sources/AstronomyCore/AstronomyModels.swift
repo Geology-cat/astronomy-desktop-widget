@@ -88,6 +88,51 @@ public struct DailyAstronomy: Equatable, Sendable {
     }
 }
 
+/// その日の夕方から翌朝にかけての暗夜（太陽も月も影響しない時間帯）です。
+public struct DarkNight: Equatable, Sendable {
+    /// 暗夜の有無を、理由も含めて表します。
+    public enum Status: Equatable, Sendable {
+        /// 暗夜があります。
+        case dark
+        /// 天文薄明が終わらない（太陽が −18° より下へ沈まない）ため、暗夜がありません。
+        case noAstronomicalNight
+        /// 天文薄明は終わるものの、その間ずっと月が出ているため暗夜がありません。
+        case moonlitAllNight
+    }
+
+    /// 対象日の 0 時です。
+    public var date: Date
+    /// 探索した時間窓（対象日の正午〜翌日の正午）です。
+    public var window: DateInterval
+    /// 太陽中心高度が −18° 未満となる区間（夕の天文薄明終了〜朝の天文薄明開始）です。
+    public var astronomicalNight: [DateInterval]
+    /// 天文薄明の外で、かつ月が地平線下にある区間です。
+    public var darkIntervals: [DateInterval]
+
+    public init(date: Date, window: DateInterval, astronomicalNight: [DateInterval], darkIntervals: [DateInterval]) {
+        self.date = date
+        self.window = window
+        self.astronomicalNight = astronomicalNight
+        self.darkIntervals = darkIntervals
+    }
+
+    /// 暗夜の合計時間（秒）です。
+    public var totalDuration: TimeInterval {
+        darkIntervals.reduce(0) { $0 + $1.duration }
+    }
+
+    /// 天文薄明の外にある時間の合計（秒）です。
+    public var astronomicalNightDuration: TimeInterval {
+        astronomicalNight.reduce(0) { $0 + $1.duration }
+    }
+
+    public var status: Status {
+        if astronomicalNight.isEmpty { return .noAstronomicalNight }
+        if darkIntervals.isEmpty { return .moonlitAllNight }
+        return .dark
+    }
+}
+
 public struct MoonPhase: Equatable, Sendable {
     /// 0 が新月、0.5 が満月、1 の直前が次の新月です。
     public let fraction: Double

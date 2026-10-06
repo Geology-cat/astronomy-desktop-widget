@@ -143,6 +143,80 @@ final class AstronomyCoreTests: XCTestCase {
         XCTAssertEqual(risenThatDay.setNote, .none)
     }
 
+    /// 2026年8月22日の東京：月の入（23:53）から朝の天文薄明開始（翌3:34）までが暗夜です。
+    func testDarkNightStartsAtMoonset() {
+        let daily = darkNight("2026-08-22T03:00:00Z")
+        XCTAssertEqual(daily.status, .dark)
+        XCTAssertEqual(daily.darkIntervals.count, 1)
+        // PyEphem 4.2 による独立計算値と照合します。
+        assertTime(daily.darkIntervals.first?.start, isNear: "2026-08-22T14:53:00Z", toleranceMinutes: 12)
+        assertTime(daily.darkIntervals.first?.end, isNear: "2026-08-22T18:34:30Z", toleranceMinutes: 3)
+        // 夕の天文薄明終了は暗夜の開始より前（月が出ている時間）です。
+        XCTAssertLessThan(daily.astronomicalNight.first!.start, daily.darkIntervals.first!.start)
+    }
+
+    /// 2026年10月6日の東京：夕の天文薄明終了（18:43）から月の出（翌1:46）までが暗夜です。
+    func testDarkNightEndsAtMoonrise() {
+        let daily = darkNight("2026-10-06T03:00:00Z")
+        XCTAssertEqual(daily.status, .dark)
+        XCTAssertEqual(daily.darkIntervals.count, 1)
+        assertTime(daily.darkIntervals.first?.start, isNear: "2026-10-06T09:43:00Z", toleranceMinutes: 3)
+        assertTime(daily.darkIntervals.first?.end, isNear: "2026-10-06T16:46:30Z", toleranceMinutes: 12)
+        XCTAssertEqual(daily.totalDuration / 60, 424, accuracy: 12)
+    }
+
+    /// 新月の夜は、天文薄明の外がすべて暗夜になります。
+    func testDarkNightCoversWholeAstronomicalNightAtNewMoon() {
+        let daily = darkNight("2026-10-10T03:00:00Z")
+        XCTAssertEqual(daily.status, .dark)
+        XCTAssertEqual(daily.darkIntervals, daily.astronomicalNight)
+        assertTime(daily.darkIntervals.first?.start, isNear: "2026-10-10T09:37:30Z", toleranceMinutes: 3)
+        assertTime(daily.darkIntervals.first?.end, isNear: "2026-10-10T19:19:00Z", toleranceMinutes: 3)
+    }
+
+    /// 満月の夜は、天文薄明の外でもずっと月が出ているため暗夜がありません。
+    func testDarkNightIsAbsentAtFullMoon() {
+        let daily = darkNight("2026-10-26T03:00:00Z")
+        XCTAssertEqual(daily.status, .moonlitAllNight)
+        XCTAssertTrue(daily.darkIntervals.isEmpty)
+        XCTAssertFalse(daily.astronomicalNight.isEmpty)
+        XCTAssertEqual(daily.totalDuration, 0)
+    }
+
+    /// 夏至前後の高緯度では天文薄明が終わらず、暗夜がありません。
+    func testDarkNightIsAbsentWhenTwilightNeverEnds() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let date = ISO8601DateFormatter().date(from: "2026-06-21T12:00:00Z")!
+        let london = ObserverLocation(latitude: 51.5074, longitude: -0.1278, name: "ロンドン")
+        let daily = calculator.darkNight(for: date, location: london, calendar: calendar)
+        XCTAssertEqual(daily.status, .noAstronomicalNight)
+        XCTAssertTrue(daily.darkIntervals.isEmpty)
+    }
+
+    /// 暗夜の区間は、天文薄明の外かつ月が地平線下であることを区間内の各時刻で確かめます。
+    func testDarkIntervalsSatisfyBothConditions() {
+        let daily = darkNight("2026-09-03T03:00:00Z")
+        XCTAssertFalse(daily.darkIntervals.isEmpty)
+        for interval in daily.darkIntervals {
+            var date = interval.start.addingTimeInterval(120)
+            while date < interval.end.addingTimeInterval(-120) {
+                XCTAssertLessThan(calculator.altitude(of: .sun, at: date, location: tokyo), -18)
+                XCTAssertLessThan(calculator.altitude(of: .moon, at: date, location: tokyo), 0)
+                date.addTimeInterval(600)
+            }
+        }
+        assertTime(daily.darkIntervals.first?.start, isNear: "2026-09-03T10:34:30Z", toleranceMinutes: 3)
+        assertTime(daily.darkIntervals.first?.end, isNear: "2026-09-03T12:19:30Z", toleranceMinutes: 12)
+    }
+
+    private func darkNight(_ dateText: String) -> DarkNight {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        let date = ISO8601DateFormatter().date(from: dateText)!
+        return calculator.darkNight(for: date, location: tokyo, calendar: calendar)
+    }
+
     private func assertTime(
         _ actual: Date?,
         isNear expectedText: String,

@@ -12,6 +12,7 @@ struct AstronomyWidgetView: View {
                 moonCard
             }
             twilightCard
+            darkNightCard
             if let notice = model.locationNotice {
                 noticeRow(notice)
             }
@@ -194,6 +195,189 @@ struct AstronomyWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - 暗夜
+
+    private static let darkNightTint = Color(red: 0.68, green: 0.60, blue: 1.0)
+
+    /// 今日の夕方から明日の朝にかけて、太陽も月も影響しない時間帯を示すカードです。
+    private var darkNightCard: some View {
+        VStack(alignment: .leading, spacing: 9 * model.textScale) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Label("暗夜", systemImage: "moon.zzz.fill")
+                    .font(widgetFont(15, weight: .semibold))
+                    .foregroundStyle(Self.darkNightTint)
+                if let night = model.tonight {
+                    Text(nightRangeTitle(night))
+                        .font(widgetFont(11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                if let night = model.tonight, night.status == .dark {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text("計")
+                            .font(widgetFont(11))
+                            .foregroundStyle(.secondary)
+                        Text(durationText(night.totalDuration))
+                            .font(widgetFont(15, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                    }
+                    .lineLimit(1)
+                }
+            }
+
+            if let night = model.tonight {
+                darkNightContent(night)
+            } else {
+                placeholder
+            }
+        }
+        .padding(12 * min(model.textScale, 1.15))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.105), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func darkNightContent(_ night: DarkNight) -> some View {
+        switch night.status {
+        case .dark:
+            VStack(alignment: .leading, spacing: 6 * model.textScale) {
+                ForEach(Array(night.darkIntervals.enumerated()), id: \.offset) { _, interval in
+                    darkIntervalRow(interval, in: night)
+                }
+            }
+            darkNightTimeline(night)
+        case .moonlitAllNight:
+            darkNightMessage(systemImage: "moon.fill", text: "一晩中月が出ているため、暗夜はありません")
+            darkNightTimeline(night)
+        case .noAstronomicalNight:
+            darkNightMessage(systemImage: "sun.haze.fill", text: "天文薄明が終わらないため、暗夜はありません")
+        }
+    }
+
+    /// 暗夜 1 区間分の行です。開始・終了が薄明と月のどちらで決まったかを添えます。
+    private func darkIntervalRow(_ interval: DateInterval, in night: DarkNight) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8 * model.textScale) {
+            darkBoundary(time: nightTime(interval.start, in: night), cause: startCause(interval, in: night))
+            Image(systemName: "arrow.right")
+                .font(widgetFont(11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            darkBoundary(time: nightTime(interval.end, in: night), cause: endCause(interval, in: night))
+            Spacer(minLength: 4)
+            if night.darkIntervals.count > 1 {
+                Text(durationText(interval.duration))
+                    .font(widgetFont(12))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+    }
+
+    private func darkBoundary(time: String, cause: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(time)
+                .font(widgetFont(17, weight: .medium))
+                .monospacedDigit()
+            if let cause {
+                Text(cause)
+                    .font(widgetFont(11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func darkNightMessage(systemImage: String, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+            Text(text)
+        }
+        .font(widgetFont(13))
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+    }
+
+    /// 夜（夕の天文薄明終了〜朝の天文薄明開始）全体に対する、暗夜と月明かりの配置を示します。
+    @ViewBuilder
+    private func darkNightTimeline(_ night: DarkNight) -> some View {
+        if let first = night.astronomicalNight.first, let last = night.astronomicalNight.last {
+            let span = DateInterval(start: first.start, end: last.end)
+            VStack(spacing: 4 * model.textScale) {
+                DarkNightTimeline(
+                    span: span,
+                    astronomicalNight: night.astronomicalNight,
+                    darkIntervals: night.darkIntervals,
+                    now: model.now,
+                    darkTint: Self.darkNightTint
+                )
+                .frame(height: 9 * model.textScale)
+                HStack(spacing: 8) {
+                    Text(nightTime(span.start, in: night))
+                        .monospacedDigit()
+                    Spacer(minLength: 4)
+                    legend(color: Self.darkNightTint, text: "暗夜")
+                    legend(color: DarkNightTimeline.moonlitColor, text: "月明かり")
+                    Spacer(minLength: 4)
+                    Text(nightTime(span.end, in: night))
+                        .monospacedDigit()
+                }
+                .font(widgetFont(11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+        }
+    }
+
+    private func legend(color: Color, text: String) -> some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(color)
+                .frame(width: 6 * model.textScale, height: 6 * model.textScale)
+            Text(text)
+        }
+    }
+
+    /// 暗夜の開始が「夕の天文薄明終了」と「月の入」のどちらによるかを返します。
+    private func startCause(_ interval: DateInterval, in night: DarkNight) -> String? {
+        if interval.start <= night.window.start { return nil }
+        let byTwilight = night.astronomicalNight.contains { abs($0.start.timeIntervalSince(interval.start)) < 1 }
+        return byTwilight ? "薄明終了" : "月の入"
+    }
+
+    /// 暗夜の終了が「朝の天文薄明開始」と「月の出」のどちらによるかを返します。
+    private func endCause(_ interval: DateInterval, in night: DarkNight) -> String? {
+        if interval.end >= night.window.end { return nil }
+        let byTwilight = night.astronomicalNight.contains { abs($0.end.timeIntervalSince(interval.end)) < 1 }
+        return byTwilight ? "薄明開始" : "月の出"
+    }
+
+    /// 「10/6〜7」のように、どの夜の暗夜かを示します。
+    private func nightRangeTitle(_ night: DarkNight) -> String {
+        let calendar = Calendar.current
+        let month = calendar.component(.month, from: night.date)
+        let day = calendar.component(.day, from: night.date)
+        guard let next = calendar.date(byAdding: .day, value: 1, to: night.date) else { return "\(month)/\(day)" }
+        let nextMonth = calendar.component(.month, from: next)
+        let nextDay = calendar.component(.day, from: next)
+        let nextText = nextMonth == month ? "\(nextDay)" : "\(nextMonth)/\(nextDay)"
+        return "\(month)/\(day)〜\(nextText)の夜"
+    }
+
+    /// 対象日の翌日以降の時刻には「翌」を付けます。
+    private func nightTime(_ date: Date, in night: DarkNight) -> String {
+        let isNextDay = Calendar.current.startOfDay(for: date) > night.date
+        return (isNextDay ? "翌" : "") + time(date)
+    }
+
+    private func durationText(_ duration: TimeInterval) -> String {
+        let minutes = Int((duration / 60).rounded())
+        let hours = minutes / 60
+        let rest = minutes % 60
+        if hours == 0 { return "\(rest)分" }
+        return "\(hours)時間" + String(format: "%02d分", rest)
+    }
+
     private func noticeRow(_ notice: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "location.slash")
@@ -309,5 +493,70 @@ private struct EventRow: View {
                 .minimumScaleFactor(0.7)
         }
         .font(.system(size: 15 * textScale))
+    }
+}
+
+/// 夜（天文薄明の外）を 1 本の帯で表し、月明かりの区間と暗夜の区間を塗り分けます。
+private struct DarkNightTimeline: View {
+    static let moonlitColor = Color(red: 0.98, green: 0.89, blue: 0.62).opacity(0.55)
+
+    let span: DateInterval
+    let astronomicalNight: [DateInterval]
+    let darkIntervals: [DateInterval]
+    let now: Date
+    let darkTint: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            ZStack(alignment: .leading) {
+                // 夜の間は、暗夜でなければ月が出ています。
+                Rectangle().fill(Self.moonlitColor)
+                // 高緯度などで夜の途中に天文薄明が挟まる場合は、その区間を薄く抜きます。
+                ForEach(Array(twilightGaps.enumerated()), id: \.offset) { _, gap in
+                    segment(gap, width: width, height: height).fill(Color.white.opacity(0.12))
+                }
+                ForEach(Array(darkIntervals.enumerated()), id: \.offset) { _, interval in
+                    segment(interval, width: width, height: height)
+                        .fill(
+                            LinearGradient(
+                                colors: [darkTint.opacity(0.85), darkTint],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+                if span.contains(now) {
+                    // 現在時刻の位置に小さな目印を置きます。
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: 2, height: height)
+                        .shadow(color: .black.opacity(0.5), radius: 1)
+                        .offset(x: fraction(now) * width - 1)
+                }
+            }
+        }
+        .clipShape(Capsule())
+    }
+
+    private var twilightGaps: [DateInterval] {
+        zip(astronomicalNight, astronomicalNight.dropFirst()).compactMap { previous, next in
+            next.start > previous.end ? DateInterval(start: previous.end, end: next.start) : nil
+        }
+    }
+
+    private func segment(_ interval: DateInterval, width: CGFloat, height: CGFloat) -> some Shape {
+        let start = fraction(interval.start) * width
+        let end = fraction(interval.end) * width
+        return Rectangle()
+            .size(width: max(1, end - start), height: height)
+            .offset(x: start)
+    }
+
+    private func fraction(_ date: Date) -> CGFloat {
+        guard span.duration > 0 else { return 0 }
+        let value = date.timeIntervalSince(span.start) / span.duration
+        return CGFloat(min(1, max(0, value)))
     }
 }

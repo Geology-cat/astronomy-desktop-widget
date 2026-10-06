@@ -7,6 +7,8 @@ final class AstronomyViewModel: NSObject, ObservableObject {
     @Published private(set) var now = Date()
     @Published private(set) var today: DailyAstronomy?
     @Published private(set) var tomorrow: DailyAstronomy?
+    /// 今日の夕方から明日の朝にかけての暗夜です。
+    @Published private(set) var tonight: DarkNight?
     @Published private(set) var moonPhase = MoonPhase(fraction: 0, age: 0, illuminatedFraction: 0)
     @Published private(set) var activeLocation = ObserverLocation(latitude: 35.6812, longitude: 139.7671, name: "東京")
     @Published private(set) var locationNotice: String?
@@ -109,6 +111,7 @@ final class AstronomyViewModel: NSObject, ObservableObject {
         if let nextDate = Calendar.current.date(byAdding: .day, value: 1, to: now) {
             tomorrow = calculator.dailyAstronomy(for: nextDate, location: activeLocation, moonMode: moonMode)
         }
+        tonight = calculator.darkNight(for: now, location: activeLocation)
     }
 }
 

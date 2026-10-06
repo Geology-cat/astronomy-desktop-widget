@@ -35,6 +35,41 @@ public struct AstronomyCalculator: Sendable {
         return DailyAstronomy(date: start, sun: sunEvents, moon: moon, astronomicalTwilight: twilight)
     }
 
+    /// その日の夕方から翌朝にかけての暗夜を求めます。
+    ///
+    /// 対象日の正午から翌日の正午までを探索し、
+    /// 「夕の天文薄明終了〜朝の天文薄明開始」の区間から、月が地平線上にある区間（月の出〜月の入）を除きます。
+    /// 月の出入りの判定は、表示している月の出・月の入と同じ基準（上縁＋大気差）を使います。
+    public func darkNight(
+        for date: Date,
+        location: ObserverLocation,
+        calendar: Calendar = .current
+    ) -> DarkNight {
+        let start = calendar.startOfDay(for: date)
+        let nextStart = calendar.date(byAdding: .day, value: 1, to: start)!
+        // 夏時間の切り替え日でもずれないよう、加算ではなく「その日の12時」を指定します。
+        let windowStart = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: start)
+            ?? start.addingTimeInterval(12 * 3_600)
+        let windowEnd = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: nextStart)
+            ?? nextStart.addingTimeInterval(12 * 3_600)
+
+        // 太陽中心高度が −18° 未満（天文薄明の外）なら正になります。
+        let astronomicalNight = positiveIntervals(start: windowStart, end: windowEnd) { date in
+            -18 - altitude(of: .sun, at: date, location: location)
+        }
+        // 月が出入りの基準高度より下（地平線下）なら正になります。
+        let moonDown = positiveIntervals(start: windowStart, end: windowEnd) { date in
+            horizonThreshold(.moon, at: date) - altitude(of: .moon, at: date, location: location)
+        }
+
+        return DarkNight(
+            date: start,
+            window: DateInterval(start: windowStart, end: windowEnd),
+            astronomicalNight: astronomicalNight,
+            darkIntervals: intersection(astronomicalNight, moonDown)
+        )
+    }
+
     public func moonPhase(at date: Date) -> MoonPhase {
         let sunLongitude = sunCoordinate(at: date).eclipticLongitude
         let moonLongitude = moonCoordinate(at: date).eclipticLongitude
@@ -287,6 +322,48 @@ public struct AstronomyCalculator: Sendable {
 
     private enum CrossingDirection { case rising, setting }
     private struct Crossing { let date: Date; let direction: CrossingDirection }
+
+    /// value が正となる区間を、ゼロ点（通過時刻）を境に切り出します。
+    private func positiveIntervals(
+        start: Date,
+        end: Date,
+        value: (Date) -> Double
+    ) -> [DateInterval] {
+        var result: [DateInterval] = []
+        var openedAt: Date? = value(start) > 0 ? start : nil
+        for crossing in findCrossings(start: start, end: end, step: 300, value: value) {
+            switch crossing.direction {
+            case .rising:
+                if openedAt == nil { openedAt = crossing.date }
+            case .setting:
+                if let opened = openedAt, crossing.date > opened {
+                    result.append(DateInterval(start: opened, end: crossing.date))
+                }
+                openedAt = nil
+            }
+        }
+        if let opened = openedAt, end > opened {
+            result.append(DateInterval(start: opened, end: end))
+        }
+        return result
+    }
+
+    /// 時刻順に並んだ 2 つの区間列の共通部分を求めます。
+    private func intersection(_ lhs: [DateInterval], _ rhs: [DateInterval]) -> [DateInterval] {
+        var result: [DateInterval] = []
+        var i = 0
+        var j = 0
+        while i < lhs.count, j < rhs.count {
+            let start = max(lhs[i].start, rhs[j].start)
+            let end = min(lhs[i].end, rhs[j].end)
+            // 計算誤差で生じる 1 分未満の断片は捨てます。
+            if end.timeIntervalSince(start) >= 60 {
+                result.append(DateInterval(start: start, end: end))
+            }
+            if lhs[i].end < rhs[j].end { i += 1 } else { j += 1 }
+        }
+        return result
+    }
 
     private func findCrossings(
         start: Date,
