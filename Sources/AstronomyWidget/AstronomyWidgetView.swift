@@ -3,6 +3,9 @@ import SwiftUI
 
 struct AstronomyWidgetView: View {
     @ObservedObject var model: AstronomyViewModel
+    @State private var isShowingDatePicker = false
+
+    private static let formatter = AstronomyTextFormatter()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11 * model.textScale) {
@@ -33,11 +36,7 @@ struct AstronomyWidgetView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 10 * model.textScale) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.now, format: .dateTime.year().month(.wide).day().weekday(.wide))
-                    .font(widgetFont(21, weight: .semibold, design: .rounded))
-                    .tracking(-0.3)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                dateNavigator
                 HStack(spacing: 4) {
                     Image(systemName: "location.fill")
                     Text(model.activeLocation.name)
@@ -52,6 +51,66 @@ struct AstronomyWidgetView: View {
             moonBadge
             settingsButton
         }
+    }
+
+    /// 表示日の切り替え（前日・翌日・カレンダー・今日へ戻る）です。
+    private var dateNavigator: some View {
+        HStack(spacing: 4 * model.textScale) {
+            dayStepButton(systemImage: "chevron.left", help: "前の日") { model.shiftDay(by: -1) }
+            Button {
+                isShowingDatePicker.toggle()
+            } label: {
+                Text(Self.formatter.fullDate(model.selectedDay))
+                    .font(widgetFont(19, weight: .semibold, design: .rounded))
+                    .tracking(-0.3)
+                    .foregroundStyle(model.isShowingToday ? Color.primary : Color.yellow)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            .buttonStyle(.plain)
+            .help("日付を選ぶ")
+            .popover(isPresented: $isShowingDatePicker, arrowEdge: .bottom) {
+                datePickerPopover
+            }
+            dayStepButton(systemImage: "chevron.right", help: "次の日") { model.shiftDay(by: 1) }
+            if !model.isShowingToday {
+                Button("今日") { model.showToday() }
+                    .buttonStyle(.plain)
+                    .font(widgetFont(11, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.16), in: Capsule())
+                    .help("今日の表示に戻る")
+            }
+        }
+    }
+
+    private func dayStepButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(widgetFont(11, weight: .bold))
+                .frame(width: 20 * model.textScale, height: 20 * model.textScale)
+                .background(.white.opacity(0.105), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private var datePickerPopover: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            DatePicker(
+                "表示する日",
+                selection: Binding(get: { model.selectedDay }, set: { model.selectDay($0) }),
+                displayedComponents: .date
+            )
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            Button("今日") {
+                model.showToday()
+                isShowingDatePicker = false
+            }
+        }
+        .padding(12)
     }
 
     // 月相の図と月齢はカードから外に出して、ヘッダーの一等地に置く
@@ -146,9 +205,9 @@ struct AstronomyWidgetView: View {
                     twilightHeader("朝の薄明開始")
                     twilightHeader("夕の薄明終了")
                 }
-                twilightRow(title: "今日", day: model.today)
+                twilightRow(title: dayTitle(model.selectedDay, fallback: "当日"), day: model.today)
                 Divider().overlay(.white.opacity(0.14))
-                twilightRow(title: "明日", day: model.tomorrow)
+                twilightRow(title: dayTitle(model.nextDay, fallback: "翌日"), day: model.tomorrow)
             }
         }
         .padding(12 * min(model.textScale, 1.15))
@@ -162,7 +221,7 @@ struct AstronomyWidgetView: View {
                 Text(title)
                     .font(widgetFont(13, weight: .semibold))
                 if let date = day?.date {
-                    Text(date, format: .dateTime.month().day().weekday(.abbreviated))
+                    Text(Self.formatter.shortDate(date))
                         .font(widgetFont(11))
                         .foregroundStyle(.secondary)
                 }
@@ -338,44 +397,29 @@ struct AstronomyWidgetView: View {
         }
     }
 
-    /// 暗夜の開始が「夕の天文薄明終了」と「月の入」のどちらによるかを返します。
     private func startCause(_ interval: DateInterval, in night: DarkNight) -> String? {
-        if interval.start <= night.window.start { return nil }
-        let byTwilight = night.astronomicalNight.contains { abs($0.start.timeIntervalSince(interval.start)) < 1 }
-        return byTwilight ? "薄明終了" : "月の入"
+        Self.formatter.startCause(interval, in: night)
     }
 
-    /// 暗夜の終了が「朝の天文薄明開始」と「月の出」のどちらによるかを返します。
     private func endCause(_ interval: DateInterval, in night: DarkNight) -> String? {
-        if interval.end >= night.window.end { return nil }
-        let byTwilight = night.astronomicalNight.contains { abs($0.end.timeIntervalSince(interval.end)) < 1 }
-        return byTwilight ? "薄明開始" : "月の出"
+        Self.formatter.endCause(interval, in: night)
     }
 
-    /// 「10/6〜7」のように、どの夜の暗夜かを示します。
     private func nightRangeTitle(_ night: DarkNight) -> String {
-        let calendar = Calendar.current
-        let month = calendar.component(.month, from: night.date)
-        let day = calendar.component(.day, from: night.date)
-        guard let next = calendar.date(byAdding: .day, value: 1, to: night.date) else { return "\(month)/\(day)" }
-        let nextMonth = calendar.component(.month, from: next)
-        let nextDay = calendar.component(.day, from: next)
-        let nextText = nextMonth == month ? "\(nextDay)" : "\(nextMonth)/\(nextDay)"
-        return "\(month)/\(day)〜\(nextText)の夜"
+        Self.formatter.nightRangeTitle(night)
     }
 
-    /// 対象日の翌日以降の時刻には「翌」を付けます。
     private func nightTime(_ date: Date, in night: DarkNight) -> String {
-        let isNextDay = Calendar.current.startOfDay(for: date) > night.date
-        return (isNextDay ? "翌" : "") + time(date)
+        Self.formatter.nightTime(date, in: night)
     }
 
     private func durationText(_ duration: TimeInterval) -> String {
-        let minutes = Int((duration / 60).rounded())
-        let hours = minutes / 60
-        let rest = minutes % 60
-        if hours == 0 { return "\(rest)分" }
-        return "\(hours)時間" + String(format: "%02d分", rest)
+        Self.formatter.durationText(duration)
+    }
+
+    /// 「今日」「明日」などの見出しです。離れた日は fallback（当日・翌日）を使います。
+    private func dayTitle(_ day: Date, fallback: String) -> String {
+        ObservationDay.relativeTitle(for: day, now: model.now) ?? fallback
     }
 
     private func noticeRow(_ notice: String) -> some View {
@@ -391,7 +435,7 @@ struct AstronomyWidgetView: View {
     }
 
     private var coordinateText: String {
-        String(format: "%.2f°, %.2f°", model.activeLocation.latitude, model.activeLocation.longitude)
+        Self.formatter.coordinate(latitude: model.activeLocation.latitude, longitude: model.activeLocation.longitude)
     }
 
     private var widgetWidth: CGFloat {
@@ -407,36 +451,23 @@ struct AstronomyWidgetView: View {
     }
 
     private func time(_ date: Date?) -> String {
-        guard let date else { return "—" }
-        return date.formatted(date: .omitted, time: .shortened)
+        Self.formatter.time(date)
     }
 
-    /// 翌日以降にまたぐ場合に、時刻へ直接付ける接頭辞です。
-    private func dayPrefix(_ note: MoonEventNote) -> String {
-        guard case .occursDaysLater(let days) = note else { return "" }
-        return days == 1 ? "翌" : "\(days)日後"
-    }
-
-    /// 前日にのぼった月であることを、時刻の横へ小さく添えます。
     private func previousDayBadge(_ note: MoonEventNote) -> String? {
-        guard case .roseOnPreviousDay = note else { return nil }
-        return "（前日）"
+        Self.formatter.previousDayBadge(note)
     }
 
     private func moonTime(_ date: Date?, _ note: MoonEventNote) -> String {
-        guard date != nil else { return "—" }
-        return dayPrefix(note) + time(date)
+        Self.formatter.moonTime(date, note)
     }
 
     private func moonTransit(_ events: DailyBodyEvents) -> String {
-        guard let date = events.transit, let altitude = events.transitAltitude else { return "—" }
-        let value = "\(time(date))（\(altitude.formatted(.number.precision(.fractionLength(1))))°）"
-        return dayPrefix(events.transitNote) + value
+        Self.formatter.transit(events)
     }
 
     private func transit(_ events: DailyBodyEvents) -> String {
-        guard let date = events.transit, let altitude = events.transitAltitude else { return "—" }
-        return "\(time(date))（\(altitude.formatted(.number.precision(.fractionLength(1))))°）"
+        Self.formatter.transit(events)
     }
 }
 

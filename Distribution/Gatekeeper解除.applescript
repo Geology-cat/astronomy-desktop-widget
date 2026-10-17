@@ -1,6 +1,8 @@
 use scripting additions
 
-property expectedBundleIdentifier : "jp.yamashitaujou.AstronomyDesktopWidget"
+-- macOS 13以降用と、macOS 10.12〜12用（Legacy）の両方を対象にします。
+property expectedBundleIdentifiers : {"jp.yamashitaujou.AstronomyDesktopWidget", "jp.yamashitaujou.AstronomyDesktopWidget.Legacy"}
+property applicationFileNames : {"天文情報ウィジェット.app", "天文情報ウィジェット Legacy.app"}
 property applicationName : "天文情報ウィジェット"
 
 on run
@@ -45,13 +47,12 @@ end run
 -- アプリケーションフォルダ内の対象アプリを既知の名前とBundle IDから探します。
 on findInstalledApp()
     set homePath to POSIX path of (path to home folder)
-    set candidatePaths to {¬
-        "/Applications/天文情報ウィジェット.app", ¬
-        homePath & "Applications/天文情報ウィジェット.app"}
-
-    repeat with candidatePath in candidatePaths
-        set resolvedPath to contents of candidatePath
-        if my isExpectedApplication(resolvedPath) then return resolvedPath
+    repeat with fileName in applicationFileNames
+        set candidatePaths to {"/Applications/" & fileName, homePath & "Applications/" & fileName}
+        repeat with candidatePath in candidatePaths
+            set resolvedPath to contents of candidatePath
+            if my isExpectedApplication(resolvedPath) then return resolvedPath
+        end repeat
     end repeat
 
     set searchRoots to {"/Applications", homePath & "Applications"}
@@ -59,13 +60,15 @@ on findInstalledApp()
         set rootPath to contents of searchRoot
         try
             do shell script "/bin/test -d " & quoted form of rootPath
-            set searchResult to do shell script ¬
-                "/usr/bin/mdfind -onlyin " & quoted form of rootPath & ¬
-                " 'kMDItemCFBundleIdentifier == \"" & expectedBundleIdentifier & "\"c'"
+            repeat with bundleIdentifier in expectedBundleIdentifiers
+                set searchResult to do shell script ¬
+                    "/usr/bin/mdfind -onlyin " & quoted form of rootPath & ¬
+                    " 'kMDItemCFBundleIdentifier == \"" & (contents of bundleIdentifier) & "\"c'"
 
-            repeat with resultPath in paragraphs of searchResult
-                set resolvedPath to contents of resultPath
-                if my isExpectedApplication(resolvedPath) then return resolvedPath
+                repeat with resultPath in paragraphs of searchResult
+                    set resolvedPath to contents of resultPath
+                    if my isExpectedApplication(resolvedPath) then return resolvedPath
+                end repeat
             end repeat
         end try
     end repeat
@@ -77,7 +80,7 @@ end findInstalledApp
 on requestAppSelection()
     set dialogResult to display dialog ¬
         "アプリケーションフォルダ内で「天文情報ウィジェット」を自動検出できませんでした。" & ¬
-        return & return & "コピーした「天文情報ウィジェット.app」を選択してください。" ¬
+        return & return & "コピーした「天文情報ウィジェット」のアプリを選択してください。" ¬
         with title "天文情報ウィジェット Gatekeeper解除" ¬
         buttons {"キャンセル", "アプリを選択…"} ¬
         default button "アプリを選択…" ¬
@@ -88,7 +91,7 @@ on requestAppSelection()
 
     try
         set selectedApp to (choose file ¬
-            with prompt "コピーした「天文情報ウィジェット.app」を選択してください。" ¬
+            with prompt "コピーした「天文情報ウィジェット」のアプリを選択してください。" ¬
             of type {"com.apple.application-bundle"} ¬
             default location (path to applications folder))
         set selectedPath to POSIX path of selectedApp
@@ -96,7 +99,7 @@ on requestAppSelection()
         if my isExpectedApplication(selectedPath) then return selectedPath
 
         display alert "対象のアプリではありません" message ¬
-            "選択したアプリのBundle IDが一致しません。天文情報ウィジェット.appを選択してください。" ¬
+            "選択したアプリのBundle IDが一致しません。天文情報ウィジェットのアプリを選択してください。" ¬
             as critical buttons {"OK"} default button "OK"
     on error errorMessage number errorNumber
         if errorNumber is -128 then return missing value
@@ -115,7 +118,7 @@ on isExpectedApplication(appPath)
         set plistPath to appPath & "/Contents/Info.plist"
         set bundleIdentifier to do shell script ¬
             "/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' " & quoted form of plistPath
-        return bundleIdentifier is expectedBundleIdentifier
+        return expectedBundleIdentifiers contains bundleIdentifier
     on error
         return false
     end try

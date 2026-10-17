@@ -26,6 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             name: .astronomyPreferencesChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(widgetAppearanceChanged),
+            name: .astronomyWidgetContentChanged,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -144,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let hostingController = NSHostingController(rootView: SettingsView())
+        let hostingController = NSHostingController(rootView: SettingsView(model: model))
         let window = NSWindow(contentViewController: hostingController)
         window.title = "天文情報ウィジェット設定"
         window.styleMask = [.titled, .closable]

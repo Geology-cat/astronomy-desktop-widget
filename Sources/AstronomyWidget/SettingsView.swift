@@ -4,7 +4,13 @@ import SwiftUI
 
 @MainActor
 struct SettingsView: View {
+    /// 地点リストの選択肢のうち、緯度経度の手入力を表すタグです。
+    private static let customTag = ""
+    private static let formatter = AstronomyTextFormatter()
+
+    @ObservedObject var model: AstronomyViewModel
     @State private var useCurrentLocation = true
+    @State private var locationPresetID = SettingsView.customTag
     @State private var locationName = "東京"
     @State private var latitude = 35.6812
     @State private var longitude = 139.7671
@@ -29,24 +35,66 @@ struct SettingsView: View {
             GroupBox("観測地点") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("現在地を使用", isOn: $useCurrentLocation)
+                    if useCurrentLocation {
+                        LabeledContent("現在地") {
+                            Text(currentLocationText)
+                                .monospacedDigit()
+                                .textSelection(.enabled)
+                                .foregroundStyle(currentLocationIsKnown ? .primary : .secondary)
+                        }
+                    }
                     Divider()
-                    Text("位置情報を利用できない場合にも、以下の指定地点を使用します。")
+                    Text(useCurrentLocation
+                         ? "位置情報を利用できない場合は、以下の地点を使用します。"
+                         : "以下の地点の天文情報を表示します。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    LabeledContent("地点名") {
-                        TextField("東京", text: $locationName).frame(width: 190)
+                    LabeledContent("地点") {
+                        Picker("地点", selection: $locationPresetID) {
+                            ForEach(LocationPreset.groupedByRegion, id: \.region) { group in
+                                Section(group.region) {
+                                    ForEach(group.presets) { preset in
+                                        Text(preset.title).tag(preset.id)
+                                    }
+                                }
+                            }
+                            Divider()
+                            Text("緯度・経度を入力…").tag(Self.customTag)
+                        }
+                        .labelsHidden()
+                        .frame(width: 220)
                     }
-                    LabeledContent("緯度") {
-                        TextField("35.6812", value: $latitude, format: .number.precision(.fractionLength(4)))
-                            .frame(width: 110)
+                    if let preset = LocationPreset.preset(id: locationPresetID) {
+                        LabeledContent("緯度・経度") {
+                            Text(Self.formatter.coordinate(
+                                latitude: preset.latitude,
+                                longitude: preset.longitude,
+                                fractionDigits: 4
+                            ))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        }
+                        Text(preset.region == "北海道" && preset.city != "札幌"
+                             ? "市役所付近の位置です。"
+                             : "都道府県庁の位置です。")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        LabeledContent("地点名") {
+                            TextField("東京", text: $locationName).frame(width: 190)
+                        }
+                        LabeledContent("緯度") {
+                            TextField("35.6812", value: $latitude, format: .number.precision(.fractionLength(4)))
+                                .frame(width: 110)
+                        }
+                        LabeledContent("経度") {
+                            TextField("139.7671", value: $longitude, format: .number.precision(.fractionLength(4)))
+                                .frame(width: 110)
+                        }
+                        Text("緯度は −90〜90°、経度は −180〜180°（東経が正）")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
-                    LabeledContent("経度") {
-                        TextField("139.7671", value: $longitude, format: .number.precision(.fractionLength(4)))
-                            .frame(width: 110)
-                    }
-                    Text("緯度は −90〜90°、経度は −180〜180°（東経が正）")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
                 }
                 .padding(8)
             }
@@ -109,11 +157,32 @@ struct SettingsView: View {
         .padding(24)
         .frame(width: 450)
         .onAppear(perform: load)
+        .onChange(of: useCurrentLocation) { useCurrent in
+            // 現在地へ切り替えたら、その場で緯度経度を確かめられるよう取得を始めます。
+            if useCurrent { model.refreshLocation() }
+        }
+    }
+
+    private var currentLocationIsKnown: Bool {
+        if case .located = model.currentLocationState { return true }
+        return false
+    }
+
+    private var currentLocationText: String {
+        switch model.currentLocationState {
+        case .located(let latitude, let longitude):
+            return Self.formatter.coordinate(latitude: latitude, longitude: longitude, fractionDigits: 4)
+        case .locating, .unknown:
+            return "取得中…"
+        case .unavailable(let reason):
+            return reason
+        }
     }
 
     private func load() {
         let preferences = AppPreferences.shared
         useCurrentLocation = preferences.useCurrentLocation
+        locationPresetID = preferences.locationPreset?.id ?? Self.customTag
         locationName = preferences.locationName
         latitude = preferences.latitude
         longitude = preferences.longitude
@@ -135,6 +204,7 @@ struct SettingsView: View {
             }
             AppPreferences.shared.save(
                 useCurrentLocation: useCurrentLocation,
+                locationPresetID: locationPresetID == Self.customTag ? nil : locationPresetID,
                 locationName: locationName,
                 latitude: latitude,
                 longitude: longitude,
